@@ -138,16 +138,10 @@ async function handleSignIn(container) {
 }
 
 // ----- Step 2: Create Account -----
-function showCreateAccountStep(container) {
+function showCreateAccountStep(container, loginCfg = {}) {
   container.innerHTML = `
     <div class="auth-screen">
-      <div class="auth-brand-panel">
-        <div class="auth-brand-tagline">Run your shop<br><span>for free.</span></div>
-        <p class="auth-brand-desc">Create your account and get started in less than a minute.</p>
-        <div class="auth-brand-features">
-          <div class="auth-brand-feature"><div class="auth-brand-feature-dot"></div>Free forever — no credit card needed</div>
-          <div class="auth-brand-feature"><div class="auth-brand-feature-dot"></div>All data stored securely in the cloud</div>
-
+      ${_buildBrandPanel(loginCfg)}
       <div class="auth-form-panel">
         <div class="auth-card">
           <div class="auth-logo">${SHOP_ICON_SVG}</div>
