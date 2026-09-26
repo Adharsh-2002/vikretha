@@ -772,29 +772,31 @@ function _renderDetailPanel(data, docId) {
     ${amendedNotice}
     ${customerSection}
 
-    <table class="rpt-items-table">
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th class="rpt-cell-center">Size</th>
-          <th class="rpt-cell-center">Qty</th>
-          <th class="rpt-cell-right">Rate</th>
-          <th class="rpt-cell-right">Total</th>
-        </tr>
-      </thead>
-      <tbody>${itemRows}</tbody>
-      <tfoot>
-        <tr class="rpt-subtotal-row">
-          <td colspan="4" class="rpt-cell-right rpt-dim">Subtotal</td>
-          <td class="rpt-cell-right">${escapeHtml(_fmt(data.subtotal))}</td>
-        </tr>
-        ${discountRow}
-        <tr class="rpt-total-row">
-          <td colspan="4" class="rpt-cell-right">Total</td>
-          <td class="rpt-cell-right">${escapeHtml(_fmt(data.total))}</td>
-        </tr>
-      </tfoot>
-    </table>
+    <div class="rpt-items-table-wrap">
+      <table class="rpt-items-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="rpt-cell-center">Size</th>
+            <th class="rpt-cell-center">Qty</th>
+            <th class="rpt-cell-right">Rate</th>
+            <th class="rpt-cell-right">Total</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+        <tfoot>
+          <tr class="rpt-subtotal-row">
+            <td colspan="4" class="rpt-cell-right rpt-dim">Subtotal</td>
+            <td class="rpt-cell-right">${escapeHtml(_fmt(data.subtotal))}</td>
+          </tr>
+          ${discountRow}
+          <tr class="rpt-total-row">
+            <td colspan="4" class="rpt-cell-right">Total</td>
+            <td class="rpt-cell-right">${escapeHtml(_fmt(data.total))}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
 
     <div class="rpt-detail-actions">
       <button id="rpt-detail-close" class="btn btn-ghost">&#x2190; Back</button>
