@@ -490,7 +490,7 @@ export async function render(container, saleId) {
         <button id="btn-download" class="btn btn-primary btn-full">↓ Download Receipt</button>
         <button id="btn-whatsapp" class="btn btn-whatsapp btn-full">Share via WhatsApp</button>
         <p style="text-align:center;font-size:0.75rem;color:var(--text-secondary);margin:4px 0 8px;">
-          Receipt image copied to clipboard • Paste (Ctrl+V) in WhatsApp
+          Opens WhatsApp App • Receipt image copied to clipboard (Ctrl+V)
         </p>
         <a href="#/dashboard" style="display:block;text-align:center;margin-top:8px;color:var(--text-secondary);font-size:0.875rem;">
           ← Back to Dashboard
@@ -543,7 +543,8 @@ export async function render(container, saleId) {
       : (WHATSAPP_NUMBER || '').replace(/\D/g, '');
     const message = _buildWhatsAppMessage(sale, cfg);
     const text    = encodeURIComponent(message);
-    const url     = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+    const appUrl  = phone ? `whatsapp://send?phone=${phone}&text=${text}` : `whatsapp://send?text=${text}`;
+    const webUrl  = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
 
     const blob = cachedBlob || await new Promise(res => canvas.toBlob(res, 'image/png'));
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -577,13 +578,25 @@ export async function render(container, saleId) {
     }
 
     if (copied) {
-      toast.info('📋 Receipt image copied! Press Ctrl+V in WhatsApp to paste.', 6000);
+      toast.info('📱 Opening WhatsApp App... Receipt image copied! Press Ctrl+V in WhatsApp to paste.', 6000);
     } else if (blob) {
       downloadReceipt(blob);
       toast.info('Receipt image downloaded. Drag/attach it into WhatsApp.', 6000);
     }
 
-    window.open(url, '_blank', 'noopener,noreferrer');
+    // 3. Launch native WhatsApp App on Windows, macOS, Linux, or Phone
+    const link = document.createElement('a');
+    link.href = appUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // 4. Fallback prompt if WhatsApp App is not installed
+    const start = Date.now();
+    setTimeout(() => {
+      if (document.hidden || (Date.now() - start > 3500)) return;
+      toast.info('WhatsApp App not opening? <a href="' + webUrl + '" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;">Open in WhatsApp Web</a>', 8000);
+    }, 2500);
   });
 }
 
