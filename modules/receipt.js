@@ -1,4 +1,4 @@
-﻿/**
+/**
  * modules/receipt.js — Receipt Page
  * Fetch sale from Firestore, draw Canvas 2D receipt, download PNG, WhatsApp share.
  */
@@ -390,6 +390,55 @@ async function _drawReceipt(sale, cfg = {}) {
   return canvas;
 }
 
+// ── WhatsApp formatted receipt generator ──────────────────────────────────────
+
+function _buildWhatsAppMessage(sale, cfg = {}) {
+  const shopName = (cfg.shopName || SHOP_NAME).trim() || SHOP_NAME;
+  const billNo   = String(sale.saleId ?? '').padStart(6, '0');
+  const dateStr  = new Date(sale.timestamp?.toDate?.() ?? Date.now())
+    .toLocaleString(LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
+
+  const lines = [
+    `🧾 *TAX INVOICE / RECEIPT*`,
+    `🏪 *${shopName}*`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `*Bill No:* #${billNo}`,
+    `*Date:* ${dateStr}`,
+  ];
+
+  if (sale.customer_name || sale.customer_phone) {
+    const cust = [sale.customer_name, sale.customer_phone].filter(Boolean).join(' • ');
+    lines.push(`*Customer:* ${cust}`);
+  }
+
+  lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(`*ITEMS:*`);
+
+  (sale.items || []).forEach((it, i) => {
+    const size = it.size_label ? ` (${it.size_label})` : '';
+    const lineTot = (it.line_total ?? ((it.qty || 0) * (it.price || 0))).toFixed(2);
+    lines.push(`${i + 1}. *${it.name}*${size}`);
+    lines.push(`   ${it.qty} × ${CURRENCY}${Number(it.price || 0).toFixed(2)} = *${CURRENCY}${lineTot}*`);
+  });
+
+  lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+  if (sale.discount && sale.discount > 0) {
+    lines.push(`*Subtotal:* ${CURRENCY}${(sale.subtotal ?? sale.total).toFixed(2)}`);
+    lines.push(`*Discount:* -${CURRENCY}${Number(sale.discount).toFixed(2)}`);
+  }
+  lines.push(`*TOTAL: ${CURRENCY}${Number(sale.total || 0).toFixed(2)}*`);
+
+  if (sale.payment_mode) {
+    lines.push(`*Payment Mode:* ${sale.payment_mode.toUpperCase()}`);
+  }
+
+  const footer = (cfg.receiptFooter || RECEIPT_FOOTER || '').trim();
+  lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+  lines.push(footer || `_Thank you for your visit!_`);
+
+  return lines.join('\n');
+}
+
 // ── Main render ───────────────────────────────────────────────────────────────
 
 export async function render(container, saleId) {
@@ -472,8 +521,7 @@ export async function render(container, saleId) {
   // If sale has a customer phone, route directly to that customer.
   // Skip Web Share API — it opens a generic system sheet with no phone routing.
   document.getElementById('btn-whatsapp').addEventListener('click', async () => {
-    const shopDisplayName = (cfg.shopName || SHOP_NAME).trim() || SHOP_NAME;
-    const message = `Receipt from ${shopDisplayName}\nBill #${saleId}\nTotal: ${CURRENCY}${sale.total.toFixed(2)}`;
+    const message = _buildWhatsAppMessage(sale, cfg);
 
     // Customer phone present — direct wa.me link to that customer
     if (sale.customer_phone) {
