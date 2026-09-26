@@ -1,4 +1,4 @@
-﻿/* ================================================================
+/* ================================================================
    VIKRETHA — Design System v2 (2026)
    Modern responsive: dark sidebar (>=1024px) + bottom nav (<1024px)
    Typography: Inter | Palette: Orange + Slate | No build step
@@ -543,6 +543,7 @@ select.form-input { cursor: pointer; }
   transition: background var(--transition-fast), color var(--transition-fast); flex-shrink: 0;
 }
 .card-qty-btn:hover { background: var(--primary); color: #fff; }
+.card-qty-btn:disabled, .card-qty-btn[disabled] { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 .card-qty-num { min-width: 22px; text-align: center; font-size: 0.875rem; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 
 /* Mobile sticky cart bar */
@@ -571,6 +572,7 @@ select.form-input { cursor: pointer; }
   transition: border-color var(--transition-fast), color var(--transition-fast);
 }
 .cart-qty-btn:hover { border-color: var(--primary); color: var(--primary); }
+.cart-qty-btn:disabled, .cart-qty-btn[disabled] { opacity: 0.35; cursor: not-allowed; pointer-events: none; border-color: var(--border); color: var(--text-muted); }
 .cart-qty-input {
   width: 40px; height: 28px; text-align: center; border: 1.5px solid var(--border);
   border-radius: var(--radius-sm); font-size: 0.875rem; font-weight: 600;
