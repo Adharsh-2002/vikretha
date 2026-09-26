@@ -3,6 +3,7 @@
  * Fetch sale from Firestore, draw Canvas 2D receipt, download PNG, WhatsApp share.
  */
 import { db, getShopConfig } from '../lib/firebase-init.js';
+import { toast } from '../lib/toast.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import {
   SHOP_NAME, SHOP_ID, CURRENCY, LOCALE, LOGO_URL, RECEIPT_FOOTER, THEME_COLOR, WHATSAPP_NUMBER
@@ -505,52 +506,66 @@ export async function render(container, saleId) {
     }
   }
 
+  const downloadReceipt = (blob) => {
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href     = url;
+    a.download = `receipt-${saleId}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Download button
   document.getElementById('btn-download').addEventListener('click', () => {
-    canvas.toBlob(blob => {
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement('a');
-      a.href     = url;
-      a.download = `receipt-${saleId}.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }, 'image/png');
+    canvas.toBlob(blob => { if (blob) downloadReceipt(blob); }, 'image/png');
   });
 
-  // WhatsApp share button
-  // If sale has a customer phone, route directly to that customer.
-  // Skip Web Share API — it opens a generic system sheet with no phone routing.
+  // WhatsApp share button: Share PNG image via Web Share API or Clipboard + wa.me
   document.getElementById('btn-whatsapp').addEventListener('click', async () => {
     const message = _buildWhatsAppMessage(sale, cfg);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if (!blob) return;
 
-    // Customer phone present — direct wa.me link to that customer
-    if (sale.customer_phone) {
-      const phone = normalizeIndianPhone(sale.customer_phone) || sale.customer_phone.replace(/\D/g, '');
-      const text  = encodeURIComponent(message);
-      window.open(`https://wa.me/${phone}?text=${text}`, '_blank', 'noopener,noreferrer');
-      return;
-    }
+    const imgFile = new File([blob], `receipt-${saleId}.png`, { type: 'image/png' });
 
-    // No customer phone: try Web Share API (lets shopkeeper choose recipient)
-    if (navigator.canShare) {
+    // 1. Native mobile share sheet with PNG image file
+    if (navigator.canShare && navigator.canShare({ files: [imgFile] })) {
       try {
-        const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-        const imgFile = new File([blob], `receipt-${saleId}.png`, { type: 'image/png' });
-        if (navigator.canShare({ files: [imgFile] })) {
-          await navigator.share({ files: [imgFile], title: `Receipt — ${SHOP_NAME}`, text: message });
-          return;
-        }
+        await navigator.share({
+          files: [imgFile],
+          title: `Receipt — ${(cfg.shopName || '').trim() || SHOP_NAME}`,
+          text: message
+        });
+        return;
       } catch (e) {
-        if (e.name === 'AbortError') return; // user cancelled — don't fall through to wa.me
+        if (e.name === 'AbortError') return;
       }
     }
 
-    // Final fallback: shop WhatsApp number or generic wa.me
-    const phone = (WHATSAPP_NUMBER || '').replace(/\D/g, '');
+    // 2. Desktop / wa.me routing: copy image to clipboard for instant paste (Ctrl+V)
+    let copied = false;
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        copied = true;
+        toast.info('Receipt image copied! Paste (Ctrl+V) to send in WhatsApp', 4000);
+      } catch (_) {
+        // Clipboard write denied or not supported in this context
+      }
+    }
+
+    // 3. Fallback if clipboard copy failed: download PNG file
+    if (!copied) {
+      downloadReceipt(blob);
+      toast.info('Receipt image downloaded. Attach it in WhatsApp chat.', 4000);
+    }
+
+    // 4. Open WhatsApp chat (direct to customer or fallback)
+    const phone = sale.customer_phone
+      ? (normalizeIndianPhone(sale.customer_phone) || sale.customer_phone.replace(/\D/g, ''))
+      : (WHATSAPP_NUMBER || '').replace(/\D/g, '');
     const text  = encodeURIComponent(message);
-    const url   = phone
-      ? `https://wa.me/${phone}?text=${text}`
-      : `https://wa.me/?text=${text}`;
+    const url   = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   });
-}
+}
