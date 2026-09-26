@@ -1,4 +1,4 @@
-﻿/**
+/**
  * modules/billing.js — Billing & Sale Recording
  * 2026 seller-optimised UI: product card grid, in-cart stepper,
  * live-total submit, animated confirmation with ⏳/✓ sync badge.
@@ -42,6 +42,33 @@ function normalizeIndianPhone(raw) {
   return false;
 }
 
+
+// ── Stock Lookup Helper ──────────────────────────────────────
+function _getAvailableStock(item) {
+  if (!item || item.adhoc) return Infinity;
+  const id = item.id || item.item_id;
+  if (!id) return Infinity;
+  const inv = _inventory.find(p => p.id === id);
+  if (!inv) return 0;
+  const sizeKey = item.sizeKey || item.size_key;
+  if (inv.has_colors && Array.isArray(inv.variants) && sizeKey) {
+    const v = inv.variants.find(v => (v.color + '/' + v.size) === sizeKey || v.color === sizeKey);
+    return v ? Math.max(0, Number(v.qty ?? 0)) : 0;
+  }
+  if (inv.hasSizes && inv.sizes && sizeKey && inv.sizes[sizeKey]) {
+    return Math.max(0, Number(inv.sizes[sizeKey].stock ?? 0));
+  }
+  return Math.max(0, Number(inv.stock ?? 0));
+}
+
+function _tryIncrementCartItem(item, availableStock = _getAvailableStock(item)) {
+  if (item.qty >= availableStock) {
+    toast(`Only ${availableStock} in stock`, 'error');
+    return false;
+  }
+  item.qty++;
+  return true;
+}
 
 // ── Customer Contact Book ─────────────────────────────────────
 async function _loadCustomers() {
@@ -234,7 +261,11 @@ export function render(container) {
       const id   = stepBtn.dataset.id;
       const item = _cart.get(id);
       if (!item) return;
-      stepBtn.dataset.step === 'inc' ? item.qty++ : item.qty--;
+      if (stepBtn.dataset.step === 'inc') {
+        if (!_tryIncrementCartItem(item)) return;
+      } else {
+        item.qty--;
+      }
       if (item.qty <= 0) _cart.delete(id);
       _refresh(container);
       return;
@@ -249,6 +280,11 @@ export function render(container) {
       }
       if (inv.hasSizes && inv.sizes && Object.keys(inv.sizes).length > 0) {
         _showSizePicker(container, inv);
+        return;
+      }
+      const maxStock = Number(inv.stock ?? 0);
+      if (maxStock <= 0) {
+        toast('Item is out of stock', 'error');
         return;
       }
       if (!_cart.has(id)) {
@@ -275,7 +311,9 @@ export function render(container) {
     const item = _cart.get(id);
     if (!item) return;
     const action = btn.dataset.cart;
-    if (action === 'inc')      { item.qty++; }
+    if (action === 'inc') {
+      if (!_tryIncrementCartItem(item)) return;
+    }
     else if (action === 'dec') { item.qty--; if (item.qty <= 0) _cart.delete(id); }
     else if (action === 'remove') { _cart.delete(id); }
     _refresh(container);
@@ -449,7 +487,7 @@ function _renderGrid(query = '') {
             <div class="card-qty-ctrl" role="group" aria-label="Quantity">
               <button class="card-qty-btn" data-step="dec" data-id="${escapeHtml(item.id)}" aria-label="Decrease">−</button>
               <span class="card-qty-num">${qty}</span>
-              <button class="card-qty-btn" data-step="inc" data-id="${escapeHtml(item.id)}" aria-label="Increase">+</button>
+              <button class="card-qty-btn" data-step="inc" data-id="${escapeHtml(item.id)}" aria-label="Increase"${qty >= stock ? ' disabled title="Maximum stock reached"' : ''}>+</button>
             </div>` : `
             <span class="product-card-add">+ Add</span>`}
         </div>
@@ -472,7 +510,10 @@ function _renderCartRows() {
   }
   if (emptyEl) emptyEl.style.display = 'none';
 
-  rows.innerHTML = [..._cart.values()].map(item => `
+  rows.innerHTML = [..._cart.values()].map(item => {
+    const maxStock = _getAvailableStock(item);
+    const atMax = item.qty >= maxStock;
+    return `
     <div class="cart-item cart-item-enter">
       <div>
         <div class="cart-item-name">${escapeHtml(item.name)}</div>
@@ -481,13 +522,14 @@ function _renderCartRows() {
       <div class="cart-qty-control">
         <button class="cart-qty-btn" data-cart="dec" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Decrease">−</button>
         <span style="min-width:28px;text-align:center;font-size:0.875rem;font-weight:600;font-variant-numeric:tabular-nums;">${item.qty}</span>
-        <button class="cart-qty-btn" data-cart="inc" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Increase">+</button>
+        <button class="cart-qty-btn" data-cart="inc" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Increase"${atMax ? ' disabled title="Maximum stock reached"' : ''}>+</button>
       </div>
       <span style="font-size:0.875rem;font-weight:600;color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;">${CURRENCY}${(item.price * item.qty).toFixed(2)}</span>
       <button class="cart-remove-btn" data-cart="remove" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Remove ${escapeHtml(item.name)}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   const subtotal = [..._cart.values()].reduce((s, i) => s + i.price * i.qty, 0);
   _updateMobileCartBar(_cart.size, subtotal);
@@ -601,7 +643,8 @@ function _showVariantPicker(container, inv) {
           row.addEventListener('click', () => {
             const cartKey = inv.id + '__' + v.color + '__' + v.size;
             if (_cart.has(cartKey)) {
-              _cart.get(cartKey).qty++;
+              const item = _cart.get(cartKey);
+              if (!_tryIncrementCartItem(item, v.qty)) return;
             } else {
               _cart.set(cartKey, { id: inv.id, cartKey, name: inv.name,
                 price: Number(inv.price), unit: inv.unit || 'pcs', qty: 1,
@@ -632,7 +675,8 @@ function _showVariantPicker(container, inv) {
         row.addEventListener('click', () => {
           const cartKey = inv.id + '__' + v.color;
           if (_cart.has(cartKey)) {
-            _cart.get(cartKey).qty++;
+            const item = _cart.get(cartKey);
+            if (!_tryIncrementCartItem(item, v.qty)) return;
           } else {
             _cart.set(cartKey, { id: inv.id, cartKey, name: inv.name,
               price: Number(inv.price), unit: inv.unit || 'pcs', qty: 1,
@@ -705,7 +749,8 @@ function _showSizePicker(container, inv) {
         const cartKey = inv.id + '::' + sizeKey;
         const sizeLabel = sizeData.color ? sizeData.label + ' · ' + sizeData.color : sizeData.label;
         if (_cart.has(cartKey)) {
-          _cart.get(cartKey).qty++;
+          const item = _cart.get(cartKey);
+          if (!_tryIncrementCartItem(item, sizeData.stock)) return;
         } else {
           _cart.set(cartKey, { id: inv.id, cartKey, name: inv.name,
             price: Number(inv.price), unit: 'pcs', qty: 1,
@@ -1059,6 +1104,19 @@ async function _handleSubmit(container) {
       btn.disabled = false;
       btn.textContent = 'Submit Sale';
       errEl.textContent = `Split amounts (${CURRENCY}${splitSum.toFixed(2)}) must equal the total (${CURRENCY}${total.toFixed(2)}).`;
+      errEl.style.display = 'block';
+      return;
+    }
+  }
+
+  // Validate stock availability for all inventory items
+  for (const item of cartArr) {
+    if (item.adhoc || !item.item_id) continue;
+    const maxStock = _getAvailableStock(item);
+    if (item.qty > maxStock) {
+      btn.disabled = false;
+      btn.textContent = 'Submit Sale';
+      errEl.textContent = `Cannot complete sale: "${item.name}" quantity (${item.qty}) exceeds available stock (${maxStock}).`;
       errEl.style.display = 'block';
       return;
     }
