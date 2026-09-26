@@ -61,6 +61,15 @@ function _getAvailableStock(item) {
   return Math.max(0, Number(inv.stock ?? 0));
 }
 
+function _tryIncrementCartItem(item, availableStock = _getAvailableStock(item)) {
+  if (item.qty >= availableStock) {
+    toast(`Only ${availableStock} in stock`, 'error');
+    return false;
+  }
+  item.qty++;
+  return true;
+}
+
 // ── Customer Contact Book ─────────────────────────────────────
 async function _loadCustomers() {
   try {
@@ -253,12 +262,7 @@ export function render(container) {
       const item = _cart.get(id);
       if (!item) return;
       if (stepBtn.dataset.step === 'inc') {
-        const max = _getAvailableStock(item);
-        if (item.qty >= max) {
-          toast(`Only ${max} in stock`, 'error');
-          return;
-        }
-        item.qty++;
+        if (!_tryIncrementCartItem(item)) return;
       } else {
         item.qty--;
       }
@@ -308,12 +312,7 @@ export function render(container) {
     if (!item) return;
     const action = btn.dataset.cart;
     if (action === 'inc') {
-      const max = _getAvailableStock(item);
-      if (item.qty >= max) {
-        toast(`Only ${max} in stock`, 'error');
-        return;
-      }
-      item.qty++;
+      if (!_tryIncrementCartItem(item)) return;
     }
     else if (action === 'dec') { item.qty--; if (item.qty <= 0) _cart.delete(id); }
     else if (action === 'remove') { _cart.delete(id); }
@@ -488,7 +487,7 @@ function _renderGrid(query = '') {
             <div class="card-qty-ctrl" role="group" aria-label="Quantity">
               <button class="card-qty-btn" data-step="dec" data-id="${escapeHtml(item.id)}" aria-label="Decrease">−</button>
               <span class="card-qty-num">${qty}</span>
-              <button class="card-qty-btn" data-step="inc" data-id="${escapeHtml(item.id)}" aria-label="Increase"${qty >= stock ? ' disabled aria-disabled="true" title="Maximum stock reached"' : ''}>+</button>
+              <button class="card-qty-btn" data-step="inc" data-id="${escapeHtml(item.id)}" aria-label="Increase"${qty >= stock ? ' disabled title="Maximum stock reached"' : ''}>+</button>
             </div>` : `
             <span class="product-card-add">+ Add</span>`}
         </div>
@@ -523,7 +522,7 @@ function _renderCartRows() {
       <div class="cart-qty-control">
         <button class="cart-qty-btn" data-cart="dec" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Decrease">−</button>
         <span style="min-width:28px;text-align:center;font-size:0.875rem;font-weight:600;font-variant-numeric:tabular-nums;">${item.qty}</span>
-        <button class="cart-qty-btn" data-cart="inc" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Increase"${atMax ? ' disabled aria-disabled="true" title="Maximum stock reached"' : ''}>+</button>
+        <button class="cart-qty-btn" data-cart="inc" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Increase"${atMax ? ' disabled title="Maximum stock reached"' : ''}>+</button>
       </div>
       <span style="font-size:0.875rem;font-weight:600;color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;">${CURRENCY}${(item.price * item.qty).toFixed(2)}</span>
       <button class="cart-remove-btn" data-cart="remove" data-id="${escapeHtml(item.cartKey || item.id)}" aria-label="Remove ${escapeHtml(item.name)}">
@@ -645,11 +644,7 @@ function _showVariantPicker(container, inv) {
             const cartKey = inv.id + '__' + v.color + '__' + v.size;
             if (_cart.has(cartKey)) {
               const item = _cart.get(cartKey);
-              if (item.qty >= v.qty) {
-                toast(`Only ${v.qty} in stock`, 'error');
-                return;
-              }
-              item.qty++;
+              if (!_tryIncrementCartItem(item, v.qty)) return;
             } else {
               _cart.set(cartKey, { id: inv.id, cartKey, name: inv.name,
                 price: Number(inv.price), unit: inv.unit || 'pcs', qty: 1,
@@ -681,11 +676,7 @@ function _showVariantPicker(container, inv) {
           const cartKey = inv.id + '__' + v.color;
           if (_cart.has(cartKey)) {
             const item = _cart.get(cartKey);
-            if (item.qty >= v.qty) {
-              toast(`Only ${v.qty} in stock`, 'error');
-              return;
-            }
-            item.qty++;
+            if (!_tryIncrementCartItem(item, v.qty)) return;
           } else {
             _cart.set(cartKey, { id: inv.id, cartKey, name: inv.name,
               price: Number(inv.price), unit: inv.unit || 'pcs', qty: 1,
@@ -759,11 +750,7 @@ function _showSizePicker(container, inv) {
         const sizeLabel = sizeData.color ? sizeData.label + ' · ' + sizeData.color : sizeData.label;
         if (_cart.has(cartKey)) {
           const item = _cart.get(cartKey);
-          if (item.qty >= sizeData.stock) {
-            toast(`Only ${sizeData.stock} in stock`, 'error');
-            return;
-          }
-          item.qty++;
+          if (!_tryIncrementCartItem(item, sizeData.stock)) return;
         } else {
           _cart.set(cartKey, { id: inv.id, cartKey, name: inv.name,
             price: Number(inv.price), unit: 'pcs', qty: 1,
