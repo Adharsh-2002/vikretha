@@ -520,52 +520,38 @@ export async function render(container, saleId) {
     canvas.toBlob(blob => { if (blob) downloadReceipt(blob); }, 'image/png');
   });
 
-  // WhatsApp share button: Share PNG image via Web Share API or Clipboard + wa.me
-  document.getElementById('btn-whatsapp').addEventListener('click', async () => {
-    const message = _buildWhatsAppMessage(sale, cfg);
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-    if (!blob) return;
-
-    const imgFile = new File([blob], `receipt-${saleId}.png`, { type: 'image/png' });
-
-    // 1. Native mobile share sheet with PNG image file
-    if (navigator.canShare && navigator.canShare({ files: [imgFile] })) {
-      try {
-        await navigator.share({
-          files: [imgFile],
-          title: `Receipt — ${(cfg.shopName || '').trim() || SHOP_NAME}`,
-          text: message
-        });
-        return;
-      } catch (e) {
-        if (e.name === 'AbortError') return;
-      }
-    }
-
-    // 2. Desktop / wa.me routing: copy image to clipboard for instant paste (Ctrl+V)
-    let copied = false;
-    if (navigator.clipboard?.write && window.ClipboardItem) {
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        copied = true;
-        toast.info('Receipt image copied! Paste (Ctrl+V) to send in WhatsApp', 4000);
-      } catch (_) {
-        // Clipboard write denied or not supported in this context
-      }
-    }
-
-    // 3. Fallback if clipboard copy failed: download PNG file
-    if (!copied) {
-      downloadReceipt(blob);
-      toast.info('Receipt image downloaded. Attach it in WhatsApp chat.', 4000);
-    }
-
-    // 4. Open WhatsApp chat (direct to customer or fallback)
+  // WhatsApp share button: Opens WhatsApp directly and copies PNG receipt image to clipboard
+  document.getElementById('btn-whatsapp').addEventListener('click', () => {
     const phone = sale.customer_phone
       ? (normalizeIndianPhone(sale.customer_phone) || sale.customer_phone.replace(/\D/g, ''))
       : (WHATSAPP_NUMBER || '').replace(/\D/g, '');
-    const text  = encodeURIComponent(message);
-    const url   = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+    const message = _buildWhatsAppMessage(sale, cfg);
+    const text    = encodeURIComponent(message);
+    const url     = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+
+    // 1. Immediately open WhatsApp synchronously so popup blockers never block it
     window.open(url, '_blank', 'noopener,noreferrer');
+
+    // 2. Copy the receipt PNG image to clipboard for instant Ctrl+V into WhatsApp chat
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      let copied = false;
+      if (navigator.clipboard?.write && window.ClipboardItem) {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          copied = true;
+          toast.info('Receipt image copied! Paste (Ctrl+V) in WhatsApp', 4000);
+        } catch (_) {
+          // Clipboard write denied or not supported in this context
+        }
+      }
+
+      // 3. Fallback if clipboard copy failed: download PNG file
+      if (!copied) {
+        downloadReceipt(blob);
+        toast.info('Receipt image downloaded. Attach it in WhatsApp chat.', 4000);
+      }
+    }, 'image/png');
   });
-}
+}
+
