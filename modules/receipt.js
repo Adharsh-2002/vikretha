@@ -437,6 +437,11 @@ function _buildWhatsAppMessage(sale, cfg = {}) {
   lines.push(`━━━━━━━━━━━━━━━━━━━━`);
   lines.push(footer || `_Thank you for your visit!_`);
 
+  if (typeof window !== 'undefined' && window.location?.origin && sale.saleId) {
+    lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`🧾 *Digital Receipt:* ${window.location.origin}/#/receipt/${encodeURIComponent(sale.saleId)}`);
+  }
+
   return lines.join('\n');
 }
 
@@ -495,6 +500,10 @@ export async function render(container, saleId) {
   const dataUrl = canvas.toDataURL('image/png');
   document.getElementById('receipt-img').src = dataUrl;
 
+  // Pre-generate blob for instantaneous clipboard write on user click
+  let cachedBlob = null;
+  canvas.toBlob(b => { cachedBlob = b; }, 'image/png');
+
   // Customer history link — only when sale has customer_phone
   if (sale.customer_phone) {
     const custHistBtn = document.getElementById('btn-cust-history');
@@ -517,11 +526,15 @@ export async function render(container, saleId) {
 
   // Download button
   document.getElementById('btn-download').addEventListener('click', () => {
-    canvas.toBlob(blob => { if (blob) downloadReceipt(blob); }, 'image/png');
+    if (cachedBlob) {
+      downloadReceipt(cachedBlob);
+    } else {
+      canvas.toBlob(blob => { if (blob) downloadReceipt(blob); }, 'image/png');
+    }
   });
 
   // WhatsApp share button: Opens WhatsApp directly and copies PNG receipt image to clipboard
-  document.getElementById('btn-whatsapp').addEventListener('click', () => {
+  document.getElementById('btn-whatsapp').addEventListener('click', async () => {
     const phone = sale.customer_phone
       ? (normalizeIndianPhone(sale.customer_phone) || sale.customer_phone.replace(/\D/g, ''))
       : (WHATSAPP_NUMBER || '').replace(/\D/g, '');
@@ -529,29 +542,46 @@ export async function render(container, saleId) {
     const text    = encodeURIComponent(message);
     const url     = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
 
-    // 1. Immediately open WhatsApp synchronously so popup blockers never block it
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const blob = cachedBlob || await new Promise(res => canvas.toBlob(res, 'image/png'));
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-    // 2. Copy the receipt PNG image to clipboard for instant Ctrl+V into WhatsApp chat
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
-      let copied = false;
-      if (navigator.clipboard?.write && window.ClipboardItem) {
-        try {
-          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-          copied = true;
-          toast.info('Receipt image copied! Paste (Ctrl+V) in WhatsApp', 4000);
-        } catch (_) {
-          // Clipboard write denied or not supported in this context
+    // 1. Mobile native share: attaches PNG image file directly to WhatsApp on mobile
+    if (isMobile && navigator.canShare && blob) {
+      try {
+        const imgFile = new File([blob], `receipt-${saleId}.png`, { type: 'image/png' });
+        if (navigator.canShare({ files: [imgFile] })) {
+          await navigator.share({
+            files: [imgFile],
+            title: `Receipt — ${(cfg.shopName || '').trim() || SHOP_NAME}`,
+            text: message
+          });
+          return;
         }
+      } catch (e) {
+        if (e.name === 'AbortError') return;
       }
+    }
 
-      // 3. Fallback if clipboard copy failed: download PNG file
-      if (!copied) {
-        downloadReceipt(blob);
-        toast.info('Receipt image downloaded. Attach it in WhatsApp chat.', 4000);
+    // 2. Desktop: Copy receipt PNG to clipboard FIRST while document still has focus
+    let copied = false;
+    if (navigator.clipboard?.write && window.ClipboardItem && blob) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        copied = true;
+      } catch (err) {
+        console.warn('Clipboard write error:', err);
       }
-    }, 'image/png');
+    }
+
+    if (copied) {
+      toast.info('📋 Receipt image copied! Press Ctrl+V in WhatsApp to paste.', 6000);
+    } else if (blob) {
+      downloadReceipt(blob);
+      toast.info('Receipt image downloaded. Drag/attach it into WhatsApp.', 6000);
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
   });
 }
+
 
