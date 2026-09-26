@@ -489,6 +489,9 @@ export async function render(container, saleId) {
       <div class="receipt-actions">
         <button id="btn-download" class="btn btn-primary btn-full">↓ Download Receipt</button>
         <button id="btn-whatsapp" class="btn btn-whatsapp btn-full">Share via WhatsApp</button>
+        <p style="text-align:center;font-size:0.75rem;color:var(--text-secondary);margin:4px 0 8px;">
+          Receipt image copied to clipboard • Paste (Ctrl+V) in WhatsApp
+        </p>
         <a href="#/dashboard" style="display:block;text-align:center;margin-top:8px;color:var(--text-secondary);font-size:0.875rem;">
           ← Back to Dashboard
         </a>
