@@ -445,6 +445,101 @@ function _buildWhatsAppMessage(sale, cfg = {}) {
   return lines.join('\n');
 }
 
+/**
+ * Clean 1-2 line image caption for WhatsApp receipt sharing.
+ * Avoids dumping a 30-line ASCII bill text when sharing the graphic receipt.
+ */
+function _buildWhatsAppCaption(sale, cfg = {}) {
+  const shopName = (cfg.shopName || SHOP_NAME).trim() || SHOP_NAME;
+  const billNo   = String(sale.saleId ?? '').padStart(6, '0');
+  const total    = `${CURRENCY}${Number(sale.total || 0).toFixed(2)}`;
+  let caption = `🧾 *Receipt #${billNo}* from *${shopName}* (Total: ${total})`;
+  if (typeof window !== 'undefined' && window.location?.origin && sale.saleId) {
+    caption += `\n🔗 View Online: ${window.location.origin}/#/receipt/${encodeURIComponent(sale.saleId)}`;
+  }
+  return caption;
+}
+
+/**
+ * UI/UX Pro Max Dialog: Shows receipt preview and Ctrl+V guidance
+ */
+function _showShareImageModal({ saleId, dataUrl, blob, appUrl, webUrl, copied }) {
+  const existing = document.getElementById('share-image-modal');
+  if (existing) existing.remove();
+
+  const modalBackdrop = document.createElement('div');
+  modalBackdrop.id = 'share-image-modal';
+  modalBackdrop.className = 'share-modal-backdrop';
+  modalBackdrop.setAttribute('role', 'dialog');
+  modalBackdrop.setAttribute('aria-modal', 'true');
+  modalBackdrop.setAttribute('aria-labelledby', 'share-modal-title');
+
+  modalBackdrop.innerHTML = `
+    <div class="share-modal-card">
+      <div class="share-modal-icon">🧾</div>
+      <h3 id="share-modal-title" class="share-modal-title">Share Receipt Image</h3>
+      <p class="share-modal-desc">
+        ${copied ? 'Receipt image copied to your clipboard!' : 'Your receipt image is ready to send.'}
+      </p>
+      <div class="share-modal-preview">
+        <img src="${dataUrl}" alt="Receipt #${saleId}" />
+      </div>
+      <div class="share-modal-tip">
+        <span class="kbd-badge">Ctrl + V</span> Press <strong>Ctrl + V</strong> in WhatsApp to paste and send image!
+      </div>
+      <div class="share-modal-actions">
+        <button id="modal-copy-btn" class="btn btn-primary btn-full">
+          ${copied ? '✓ Image in Clipboard' : '📋 Copy Image to Clipboard'}
+        </button>
+        <button id="modal-open-wa-btn" class="btn btn-whatsapp btn-full">
+          💬 Open WhatsApp App
+        </button>
+        <a id="modal-wa-web-link" href="${webUrl}" target="_blank" rel="noopener noreferrer" style="font-size:0.8125rem;color:var(--text-secondary);text-decoration:underline;margin:2px 0;">
+          Or open in WhatsApp Web
+        </a>
+        <button id="modal-close-btn" class="btn btn-ghost btn-full" style="color:var(--text-muted);margin-top:2px;">
+          Done
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalBackdrop);
+
+  modalBackdrop.querySelector('#modal-copy-btn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      const btn = modalBackdrop.querySelector('#modal-copy-btn');
+      btn.textContent = '✓ Copied to Clipboard';
+      toast.success('Receipt image copied to clipboard');
+    } catch (_) {
+      toast.warn('Could not copy image. Use Download Image instead.');
+    }
+  });
+
+  modalBackdrop.querySelector('#modal-open-wa-btn').addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.href = appUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  });
+
+  const closeModal = () => modalBackdrop.remove();
+  modalBackdrop.querySelector('#modal-close-btn').addEventListener('click', closeModal);
+  modalBackdrop.addEventListener('click', (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
+
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
 // ── Main render ───────────────────────────────────────────────────────────────
 
 export async function render(container, saleId) {
@@ -536,31 +631,30 @@ export async function render(container, saleId) {
     }
   });
 
-  // WhatsApp share button: Opens WhatsApp directly and copies PNG receipt image to clipboard
+  // WhatsApp share button: Share PNG image file via native share or clipboard modal
   document.getElementById('btn-whatsapp').addEventListener('click', async () => {
     const phone = sale.customer_phone
       ? (normalizeIndianPhone(sale.customer_phone) || sale.customer_phone.replace(/\D/g, ''))
       : (WHATSAPP_NUMBER || '').replace(/\D/g, '');
-    const message = _buildWhatsAppMessage(sale, cfg);
-    const text    = encodeURIComponent(message);
+    const caption = _buildWhatsAppCaption(sale, cfg);
+    const text    = encodeURIComponent(caption);
     const appUrl  = phone ? `whatsapp://send?phone=${phone}&text=${text}` : `whatsapp://send?text=${text}`;
     const webUrl  = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
 
     const blob = cachedBlob || await new Promise(res => canvas.toBlob(res, 'image/png'));
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (!blob) return;
 
-    // 1. Mobile native share: attaches PNG image file directly to WhatsApp on mobile
-    if (isMobile && navigator.canShare && blob) {
+    const imgFile = new File([blob], `receipt-${saleId}.png`, { type: 'image/png' });
+
+    // 1. If Web Share with files is supported (mobile, tablet, or supporting desktop), share the ACTUAL PNG IMAGE FILE directly!
+    if (navigator.canShare && navigator.canShare({ files: [imgFile] })) {
       try {
-        const imgFile = new File([blob], `receipt-${saleId}.png`, { type: 'image/png' });
-        if (navigator.canShare({ files: [imgFile] })) {
-          await navigator.share({
-            files: [imgFile],
-            title: `Receipt — ${(cfg.shopName || '').trim() || SHOP_NAME}`,
-            text: message
-          });
-          return;
-        }
+        await navigator.share({
+          files: [imgFile],
+          title: `Receipt — ${(cfg.shopName || '').trim() || SHOP_NAME}`,
+          text: caption
+        });
+        return;
       } catch (e) {
         if (e.name === 'AbortError') return;
       }
@@ -578,10 +672,10 @@ export async function render(container, saleId) {
     }
 
     if (copied) {
-      toast.info('📱 Opening WhatsApp App... Receipt image copied! Press Ctrl+V in WhatsApp to paste.', 6000);
+      toast.info('📱 Opening WhatsApp... Receipt image copied to clipboard!', 4000);
     } else if (blob) {
       downloadReceipt(blob);
-      toast.info('Receipt image downloaded. Drag/attach it into WhatsApp.', 6000);
+      toast.info('Receipt image downloaded. Drag/attach it into WhatsApp.', 5000);
     }
 
     // 3. Launch native WhatsApp App on Windows, macOS, Linux, or Phone
@@ -591,12 +685,15 @@ export async function render(container, saleId) {
     link.click();
     document.body.removeChild(link);
 
-    // 4. Fallback prompt if WhatsApp App is not installed
-    const start = Date.now();
-    setTimeout(() => {
-      if (document.hidden || (Date.now() - start > 3500)) return;
-      toast.info('WhatsApp App not opening? <a href="' + webUrl + '" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;">Open in WhatsApp Web</a>', 8000);
-    }, 2500);
+    // 4. Show UI/UX Pro Max modal dialog with receipt image preview & Ctrl+V guide
+    _showShareImageModal({
+      saleId,
+      dataUrl,
+      blob,
+      appUrl,
+      webUrl,
+      copied
+    });
   });
 }
 
